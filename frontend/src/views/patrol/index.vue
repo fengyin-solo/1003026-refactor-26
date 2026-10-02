@@ -65,7 +65,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 
-import { request } from '@/api/client'
+import { fetchPage, request } from '@/api/client'
 
 type Row = Record<string, string | number | null>
 
@@ -112,15 +112,10 @@ async function runAction(action: string, row: Row) {
 
 async function reload() {
   errorMessage.value = ''
-  const query = new URLSearchParams(filters.value as Record<string, string>).toString()
   try {
-    const response = await request(`${ENDPOINT}?${query}`)
-    if (!response.ok) {
-      throw new Error('巡检任务列表读取失败')
-    }
-    const payload = await response.json()
-    rows.value = payload.items ?? []
-    total.value = payload.total ?? rows.value.length
+    const payload = await fetchPage<Row>(ENDPOINT, filters.value)
+    rows.value = payload.items
+    total.value = payload.total
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '巡检作业列表读取失败'
   }

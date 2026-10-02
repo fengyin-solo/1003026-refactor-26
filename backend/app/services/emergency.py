@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.common import list_all_entries, list_module_entries
 from app.store import store
 
 MODULE = "emergency"
@@ -10,6 +11,8 @@ REQUIRED_FIELDS = ["保障编号", "保障类型", "保障地点"]
 STATUS_ORDER = ["待响应", "响应中", "保障中", "已撤离"]
 ACTION_RULES = {"启动响应": "响应中", "调派车辆": "保障中", "撤离保障": "已撤离"}
 NEGATIVE_ACTIONS = []
+
+KEYWORD_FIELD = '保障编号'
 
 
 class EmergencyService:
@@ -21,14 +24,14 @@ class EmergencyService:
         page: int = 1,
         size: int = 20,
     ) -> tuple[list[dict[str, Any]], int]:
-        rows = store.rows(MODULE)
-        if keyword:
-            rows = [row for row in rows if keyword in str(row.get("保障编号", ""))]
-        if status:
-            rows = [row for row in rows if row.get("status") == status]
-        total = len(rows)
-        start = max(page - 1, 0) * size
-        return rows[start:start + size], total
+        """过滤条件各模块不同，分页与总数全平台共用一套口径。"""
+        return list_module_entries(
+            MODULE, KEYWORD_FIELD, keyword=keyword, status=status, page=page, size=size
+        )
+
+    def export_entries(self) -> tuple[list[dict[str, Any]], int]:
+        """导出走全量清单，不受分页上限约束。"""
+        return list_all_entries(MODULE)
 
     def get_entry(self, entry_id: int) -> dict[str, Any] | None:
         return store.find(MODULE, entry_id)
@@ -37,25 +40,23 @@ class EmergencyService:
         missing = [field for field in REQUIRED_FIELDS if not str(values.get(field) or "").strip()]
         if missing:
             return None, missing
-        rows = store.rows(MODULE)
-        entry = {"id": max((int(row.get("id", 0)) for row in rows), default=0) + 1}
-        entry.update({field: values.get(field) for field in REQUIRED_FIELDS})
+        entry = {field: values.get(field) for field in REQUIRED_FIELDS}
         entry["status"] = STATUS_ORDER[0]
         entry["pending"] = True
         entry["abnormal"] = False
-        rows.append(entry)
-        return entry, []
+        return store.append(MODULE, entry), []
 
     def run_action(self, entry_id: int, action: str) -> tuple[dict[str, Any] | None, str]:
-        entry = store.find(MODULE, entry_id)
-        if entry is None:
-            return None, f"应急保障 {entry_id} 不存在或已归档"
-        if action not in ACTION_RULES:
-            return None, f"动作「{action}」不属于应急通信可执行范围"
-        target = ACTION_RULES[action]
-        if target not in STATUS_ORDER:
-            return None, f"目标状态「{target}」不在允许的状态序列里"
-        entry["status"] = target
-        entry["pending"] = target != STATUS_ORDER[-1]
-        entry["abnormal"] = action in NEGATIVE_ACTIONS
-        return entry, f"应急保障已{action}"
+        with store.lock:
+            entry = store.find(MODULE, entry_id)
+            if entry is None:
+                return None, f"应急保障 {entry_id} 不存在或已归档"
+            if action not in ACTION_RULES:
+                return None, f"动作「{action}」不属于应急通信可执行范围"
+            target = ACTION_RULES[action]
+            if target not in STATUS_ORDER:
+                return None, f"目标状态「{target}」不在允许的状态序列里"
+            entry["status"] = target
+            entry["pending"] = target != STATUS_ORDER[-1]
+            entry["abnormal"] = action in NEGATIVE_ACTIONS
+            return entry, f"应急保障已{action}"
