@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.pagination import paginate
 from app.store import store
 
 MODULE = "battery"
@@ -26,9 +27,18 @@ class BatteryService:
             rows = [row for row in rows if keyword in str(row.get("电池组编号", ""))]
         if status:
             rows = [row for row in rows if row.get("status") == status]
-        total = len(rows)
-        start = max(page - 1, 0) * size
-        return rows[start:start + size], total
+        return paginate(
+            rows,
+            page=page,
+            size=size,
+            cache_key=(MODULE, keyword, status),
+            revision=store.revision(MODULE),
+        )
+
+    def export_entries(self) -> tuple[list[dict[str, Any]], int]:
+        """导出用全量清单：不走分页上限，口径与历史导出包一致。"""
+        rows = store.rows(MODULE)
+        return rows, len(rows)
 
     def get_entry(self, entry_id: int) -> dict[str, Any] | None:
         return store.find(MODULE, entry_id)
@@ -44,6 +54,7 @@ class BatteryService:
         entry["pending"] = True
         entry["abnormal"] = False
         rows.append(entry)
+        store.note_change(MODULE)
         return entry, []
 
     def run_action(self, entry_id: int, action: str) -> tuple[dict[str, Any] | None, str]:
@@ -58,4 +69,5 @@ class BatteryService:
         entry["status"] = target
         entry["pending"] = target != STATUS_ORDER[-1]
         entry["abnormal"] = action in NEGATIVE_ACTIONS
+        store.note_change(MODULE)
         return entry, f"蓄电池组已{action}"

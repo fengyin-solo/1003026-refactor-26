@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from app.seed import SEED_ROWS
@@ -14,12 +15,28 @@ class Store:
         self._tables: dict[str, list[dict[str, Any]]] = {
             name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
         }
+        self._revisions: dict[str, int] = {}
+        self._lock = threading.Lock()
 
     def module_names(self) -> list[str]:
         return sorted(self._tables)
 
     def rows(self, module: str) -> list[dict[str, Any]]:
         return self._tables.setdefault(module, [])
+
+    def note_change(self, module: str) -> None:
+        """记录一次写操作（登记、状态流转），让分页快照按新数据重算。
+
+        删除记录不要调这里：翻页期间的并发删除由分页快照吸收，
+        保证同一条记录不会换个页码再出现。
+        """
+        with self._lock:
+            self._revisions[module] = self._revisions.get(module, 0) + 1
+
+    def revision(self, module: str) -> int:
+        """模块的写操作版本号，分页快照把它算进缓存键。"""
+        with self._lock:
+            return self._revisions.get(module, 0)
 
     def find(self, module: str, entry_id: int) -> dict[str, Any] | None:
         for row in self.rows(module):

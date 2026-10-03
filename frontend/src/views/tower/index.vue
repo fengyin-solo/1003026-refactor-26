@@ -18,7 +18,7 @@
       </article>
     </div>
 
-    <form class="filter-bar" @submit.prevent="reload">
+    <form class="filter-bar" @submit.prevent="search">
       <label v-for="field in filterFields" :key="field" class="filter-item">
         <span>{{ field }}</span>
         <input v-model="filters[field]" :placeholder="`按${field}检索`" />
@@ -55,10 +55,7 @@
       </tbody>
     </table>
 
-    <footer class="page-foot">
-      <span>共 {{ total }} 条铁塔管理记录</span>
-      <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
-    </footer>
+    <PageFooter :total="total" :page="page" :size="size" :error="errorMessage" label="铁塔管理" @turn="turnPage" />
   </section>
 </template>
 
@@ -66,6 +63,8 @@
 import { onMounted, ref } from 'vue'
 
 import { request } from '@/api/client'
+import PageFooter from '@/components/PageFooter.vue'
+import { usePagedList } from '@/composables/usePagedList'
 
 type Row = Record<string, string | number | null>
 
@@ -75,15 +74,13 @@ const actions = ["登记倾斜", "防腐处理", "拆塔完成"]
 const statuses = ["正常", "倾斜超标", "锈蚀", "已拆除"]
 const stats = [{"label": "正常铁塔", "value": 0}, {"label": "倾斜铁塔", "value": 0}, {"label": "锈蚀铁塔", "value": 0}]
 
-const rows = ref<Row[]>([])
-const total = ref(0)
-const errorMessage = ref('')
+const { rows, total, page, size, errorMessage, load } = usePagedList<Row>(ENDPOINT)
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
 
 function resetFilters() {
   filters.value = {}
-  void reload()
+  void load({}, 1)
 }
 
 function exportRows() {
@@ -110,20 +107,16 @@ async function runAction(action: string, row: Row) {
   }
 }
 
-async function reload() {
-  errorMessage.value = ''
-  const query = new URLSearchParams(filters.value as Record<string, string>).toString()
-  try {
-    const response = await request(`${ENDPOINT}?${query}`)
-    if (!response.ok) {
-      throw new Error('铁塔列表读取失败')
-    }
-    const payload = await response.json()
-    rows.value = payload.items ?? []
-    total.value = payload.total ?? rows.value.length
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '铁塔管理列表读取失败'
-  }
+function search() {
+  return load(filters.value, 1)
+}
+
+function reload() {
+  return load(filters.value)
+}
+
+function turnPage(next: number) {
+  return load(filters.value, next)
 }
 
 onMounted(reload)

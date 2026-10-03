@@ -5,10 +5,12 @@
 """
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import settings
+from app.pagination import PageParamsError
 from app.routers import ROUTERS
 from app.store import store
 
@@ -24,6 +26,12 @@ app.add_middleware(
 
 for module in ROUTERS:
     app.include_router(module.router)
+
+
+@app.exception_handler(PageParamsError)
+async def page_params_error_handler(_request: Request, exc: PageParamsError) -> JSONResponse:
+    """分页参数越界统一返回 400，消息里带共用口径给出的说明。"""
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
 @app.get("/api/health")
